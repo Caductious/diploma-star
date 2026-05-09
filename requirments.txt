@@ -1,0 +1,30 @@
+# для Airflow
+apache-airflow==3.2.1
+apache-airflow-core==3.2.1
+apache-airflow-providers-common-compat==1.14.3
+apache-airflow-providers-common-io==1.7.2
+apache-airflow-providers-common-sql==1.35.0
+apache-airflow-providers-http==6.0.2
+apache-airflow-providers-postgres==6.6.3
+apache-airflow-providers-smtp==3.0.0
+apache-airflow-providers-standard==1.12.3
+apache-airflow-task-sdk==1.2.1
+
+# Базы данных
+psycopg2-binary==2.9.9
+clickhouse-driver==0.2.10
+SQLAlchemy==2.0.49
+
+# Обработка данных
+pandas==3.0.2
+numpy==2.4.4
+
+# Генерация данных
+Faker==40.15.0
+
+# Модуль для работы с xlsx
+openpyxl==3.1.2
+
+# Дополнения
+python-dotenv==1.0.0
+typing_extensions==4.15.0
