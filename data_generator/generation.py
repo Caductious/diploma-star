@@ -17,6 +17,10 @@ DB_CONFIG = {
     'port': os.getenv('PGPORT')
 }
 
+os.makedirs('data/raw/json')
+os.makedirs('data/raw/excel')
+
+
 db_generator = DatabaseGenerator(db_config=DB_CONFIG)
 db_generator.execute()
 

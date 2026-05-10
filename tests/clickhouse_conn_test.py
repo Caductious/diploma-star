@@ -1,24 +1,19 @@
 from clickhouse_driver import Client
 from dotenv import load_dotenv
-import os
-
-CLICKHOUSE_HOST = os.getenv('CLICKHOUSEHOST')
-CLICKHOUSE_PORT = os.getenv('CLIKCHOUSEPORT')
-CLICKHOUSE_USER = os.getenv('CLICKHOUSEUSER')
-CLICKHOUSE_PASSWORD = os.getenv('CLICKHOUSEPASSWORD')   
+import os 
 
 load_dotenv()
 
 def test_connection():
     print("Проверка подключения к ClickHouse...")
-    print(f"   Хост: {CLICKHOUSE_HOST}:{CLICKHOUSE_PORT}")
-    print(f"   Пользователь: {CLICKHOUSE_USER}")
+    print(f"   Хост: {os.getenv('CLICKHOUSEHOST')}:{os.getenv('CLICKHOUSEPORT')}")
+    print(f"   Пользователь: {os.getenv('CLICKHOUSEUSER')}")
     
     try:
             # Подключение
         client = Client(
         host=os.getenv('CLICKHOUSEHOST'),
-        port=os.getenv('CLIKCHOUSEPORT'),
+        port=int(os.getenv('CLICKHOUSEPORT')),
         user=os.getenv('CLICKHOUSEUSER'),
         password=os.getenv('CLICKHOUSEPASSWORD')
         )        

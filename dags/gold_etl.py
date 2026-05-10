@@ -26,12 +26,15 @@ default_args = {
 
 def get_clickhouse_client():
     """Создание и возврат клиента для подключения к ClickHouse"""
+    print(f"DEBUG: HOST = {os.getenv('CLICKHOUSEHOST')}")
+    print(f"DEBUG: PORT = {os.getenv('CLICKHOUSEPORT')}")
+    print(f"DEBUG: USER = {os.getenv('CLICKHOUSEUSER')}")
     return Client(
         host=os.getenv('CLICKHOUSEHOST'),
-        port=os.getenv('CLICKHOUSEPORT'),
+        port=int(os.getenv('CLICKHOUSEPORT')),
         user=os.getenv('CLICKHOUSEUSER'),
         password=os.getenv('CLICKHOUSEPASSWORD')
-    )
+        )     
 
 
 def load_dim_time(**context):

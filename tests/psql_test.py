@@ -23,7 +23,7 @@ dag = DAG(
     catchup=False,
 )
 
-# Способ 1:直接用 PostgresOperator
+# Способ 1: PostgresOperator
 test_query = PostgresOperator(
     task_id='test_query',
     postgres_conn_id='postgres_default',  # ID подключения в Airflow

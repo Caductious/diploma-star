@@ -470,22 +470,20 @@ class DatabaseGenerator:
             
             self.generate_initial_stock_balances(conn, products_ids, warehouses_ids)
             
-            print("\n" + "=" * 40)
-            print("СОЗДАНИЕ ДОКУМЕНТОВ ПРОДАЖ")
-            print("=" * 40)
+            print("\nСОЗДАНИЕ ДОКУМЕНТОВ ПРОДАЖ\n")
             
             if suppliers_ids and products_ids and warehouses_ids:
                 purchase_ids = self.generate_purchases(conn, suppliers_ids, products_ids, 
                                                 warehouses_ids, self.NUM_PURCHASES)
             else:
-                print("Skipping purchases - missing required data")
+                print("Пропуск покупок, отсутствуют необходимые данные")
                 purchase_ids = []
             
             if customers_ids and products_ids and warehouses_ids and drivers_ids and vehicles_ids:
                 sale_ids = self.generate_sales(conn, customers_ids, products_ids, warehouses_ids,
                                         drivers_ids, vehicles_ids, self.NUM_SALES)
             else:
-                print("Skipping sales - missing required data")
+                print("Пропуск продаж, отсутствуют необходимые данные")
                 sale_ids = []
             
             # Final summary
@@ -505,12 +503,12 @@ class DatabaseGenerator:
                 with conn.cursor() as cur:
                     cur.execute("SELECT license_number FROM drivers LIMIT 1")
                     example_license = cur.fetchone()[0]
-                    print(f"Driver license example: {example_license}")
+                    print(f"Пример водительских прав {example_license}")
             if vehicles_ids:
                 with conn.cursor() as cur:
                     cur.execute("SELECT plate_number FROM vehicles LIMIT 1")
                     example_plate = cur.fetchone()[0]
-                    print(f"License plate example: {example_plate}")
+                    print(f"Пример гос. номера авто: {example_plate}")
             
             with conn.cursor() as cur:
                 cur.execute("""
