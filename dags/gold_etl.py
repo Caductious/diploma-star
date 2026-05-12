@@ -336,7 +336,7 @@ def build_fact_orders(**context):
     - Маппинг госномеров транспортных средств на vehicle_id
     - Загрузка агрегированных расходов по автомобилям
     - Загрузка и обработка телеметрии для расчета длительности поездок и средней скорости
-    - Группировка телеметрии по vehicle_id и дате для получения метрик поездок
+    - Группировка телеметрии по order_key для получения метрик поездки
     - Формирование фактов: для каждого заказа вычисляются расходы, метрики поездки,
       валовая и чистая прибыль, процент маржинальности
     - Пакетная вставка в ClickHouse (пакетами по 1000 записей)
@@ -374,40 +374,43 @@ def build_fact_orders(**context):
     trip_metrics = {}
     
     if os.path.exists(telemetry_path):
-        print("Loading telemetry data...")
+        print("Загрузка данных телеметрии...")
         telemetry = pd.read_parquet(telemetry_path)
         
         telemetry['timestamp'] = pd.to_datetime(telemetry['timestamp'])
         telemetry['event_date'] = telemetry['timestamp'].dt.date
         
-        telemetry['vehicle_id'] = telemetry['car_id'].map(plate_to_vehicle_id).fillna(0).astype(int)
-        
-        telemetry = telemetry[telemetry['vehicle_id'] > 0]
-        
-        if not telemetry.empty:
-            print(f"Processing telemetry for {telemetry['vehicle_id'].nunique()} vehicles")
+        if 'order_key' in telemetry.columns:
+            telemetry = telemetry.dropna(subset=['order_key'])
+            telemetry['order_key'] = telemetry['order_key'].astype(int)
             
-            for (vehicle_id, event_date), group in telemetry.groupby(['vehicle_id', 'event_date']):
-                if len(group) < 2:
-                    continue
+            if not telemetry.empty:
+                print(f"Обработка телеметрии для {telemetry['order_key'].nunique()} уникальных заказов")
                 
-                group = group.sort_values('timestamp')
+                for order_key, group in telemetry.groupby('order_key'):
+                    if len(group) < 2:
+                        continue
+                    
+                    group = group.sort_values('timestamp')
+                    
+                    first_time = group['timestamp'].iloc[0]
+                    last_time = group['timestamp'].iloc[-1]
+                    duration_minutes = int((last_time - first_time).total_seconds() / 60.0)
+                    print(f"поездка: {first_time} - {last_time}")
+                    
+                    if 'spd' in group.columns:
+                        avg_speed = float(group['spd'].mean())
+                    else:
+                        avg_speed = 0.0
+                    
+                    trip_metrics[order_key] = {
+                        'duration_minutes': duration_minutes,
+                        'avg_speed_kmh': round(avg_speed, 2)
+                    }
                 
-                first_time = group['timestamp'].iloc[0]
-                last_time = group['timestamp'].iloc[-1]
-                duration_minutes = int((last_time - first_time).total_seconds() / 60.0)
-                
-                if 'spd' in group.columns:
-                    avg_speed = float(group['spd'].mean())
-                else:
-                    avg_speed = 0.0
-                
-                trip_metrics[(vehicle_id, event_date)] = {
-                    'duration_minutes': duration_minutes,
-                    'avg_speed_kmh': round(avg_speed, 2)
-                }
-            
-            print(f"Посчитаны метрики {len(trip_metrics)} поездок из логов")
+                print(f"Посчитаны метрики для {len(trip_metrics)} заказов из логов телеметрии")
+        else:
+            print("ВНИМАНИЕ: в телеметрии отсутствует колонка order_key, метрики поездок не будут рассчитаны")
     
     facts = []
     matched_trips = 0
@@ -416,7 +419,7 @@ def build_fact_orders(**context):
         sale_date = sale['sale_date']
         time_id = int(sale_date.strftime('%Y%m%d'))
         vehicle_id = int(sale.get('vehicle_id', 0))
-        
+
         fuel_expense = 0.0
         other_expense = 0.0
         wash_expense = 0.0
@@ -429,10 +432,10 @@ def build_fact_orders(**context):
             wash_expense = float(expenses_dict[expense_key]['wash'])
             total_expense = float(expenses_dict[expense_key]['total'])
         
-        trip_key = (vehicle_id, sale_date)
-        if trip_key in trip_metrics:
-            trip_duration = int(trip_metrics[trip_key]['duration_minutes'])
-            avg_speed = float(trip_metrics[trip_key]['avg_speed_kmh'])
+        order_key_value = int(sale['id'])
+        if order_key_value in trip_metrics:
+            trip_duration = int(trip_metrics[order_key_value]['duration_minutes'])
+            avg_speed = float(trip_metrics[order_key_value]['avg_speed_kmh'])
             matched_trips += 1
         else:
             trip_duration = 0
@@ -444,8 +447,7 @@ def build_fact_orders(**context):
         margin_percent = (net_profit / order_amount * 100) if order_amount > 0 else 0.0
         
         fact = {
-            'order_key': int(sale['id']),
-            'sale_id': str(sale['id']),
+            'order_key': order_key_value,
             'time_id': int(time_id),
             'customer_id': int(sale.get('customer_id', 0)),
             'driver_id': int(sale.get('driver_id', 0)),
@@ -466,6 +468,8 @@ def build_fact_orders(**context):
         }
         facts.append(fact)
         
+    print(f"Сопоставлено поездок с телеметрией: {matched_trips} из {len(facts)} заказов")
+        
     if facts:
         client.execute("TRUNCATE TABLE gold.fact_orders")
         
@@ -473,16 +477,19 @@ def build_fact_orders(**context):
         for i in range(0, len(facts), batch_size):
             batch = facts[i:i+batch_size]
             client.execute(
-                "INSERT INTO gold.fact_orders (order_key, sale_id, time_id, customer_id, driver_id, vehicle_id, "
+                "INSERT INTO gold.fact_orders (order_key, time_id, customer_id, driver_id, vehicle_id, "
                 "warehouse_id, order_amount, total_quantity, gross_profit, fuel_expense, other_expense, "
                 "wash_expense, total_vehicle_expense, trip_duration_minutes, avg_speed_kmh, net_profit, "
                 "margin_percent, etl_loaded_at) VALUES",
                 batch
             )
             print(f"Inserted batch {i//batch_size + 1}/{(len(facts)-1)//batch_size + 1}")
-    
+    else:
+        print("ERROR: Нет данных для вставки в таблицу фактов")
+
     print(f"Создано {len(facts)} записей в таблице фактов")
     return len(facts)
+
 
 
 with DAG(

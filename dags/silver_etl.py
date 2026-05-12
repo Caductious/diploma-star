@@ -202,41 +202,69 @@ def clean_warehouses(**context):
 def clean_sale_headers(**context):
     """
     Очистка данных о продажах (шапки документов):
+    - total_amount вычисляется как сумма amount из sale_items по данному sale_id
     - Удаление дубликатов по ID документа и полных дублей строк
     - Преобразование ID в строковый тип
-    - Преобразование total_amount в числовой тип (некорректные значения -> NaN)
     - Преобразование created_at в datetime (некорректные -> NaN)
-    - Фильтрация записей с total_amount > 0
     - Заполнение пустых комментариев пустой строкой
     - Удаление записей без created_at
     - Добавление служебного поля etl_updated_at
     - Сохранение результата в silver/postgres/sale_headers.parquet
     """
-    df = pd.read_parquet(f"{BRONZE_PATH}/postgres/sale_headers.parquet")
-    
+    headers_path = f"{BRONZE_PATH}/postgres/sale_headers.parquet"
+    items_path = f"{BRONZE_PATH}/postgres/sale_items.parquet"
+
+    # 1. Загрузка шапки
+    df = pd.read_parquet(headers_path)
     original_len = len(df)
+
+    # 2. Пересчёт total_amount из sale_items (если файл существует)
+    if os.path.exists(items_path):
+        items = pd.read_parquet(items_path)
+
+        # Очистка items: оставляем только нужные колонки и преобразуем типы
+        items['sale_id'] = items['sale_id'].astype(str)
+        items['amount'] = pd.to_numeric(items['amount'], errors='coerce')
+
+        # Суммируем amount по sale_id
+        items_sum = items.groupby('sale_id')['amount'].sum().reset_index()
+        items_sum.columns = ['id', 'computed_total']
+
+        # Приводим id в шапке к строке
+        df['id'] = df['id'].astype(str)
+
+        # Объединяем и заменяем total_amount
+        df = df.merge(items_sum, on='id', how='left')
+        df['total_amount'] = df['computed_total'].fillna(df['total_amount'])   # если нет позиций – оставляем старую сумму
+        df.drop('computed_total', axis=1, inplace=True)
+
+        print(f"Total_amount recalculated from sale_items for {len(items_sum)} sales")
+    else:
+        print("sale_items.parquet not found, keeping original total_amount")
+
+    # 3. Дальнейшая очистка (как раньше)
     df = df.drop_duplicates(subset=['id'], keep='first')
     df = df.drop_duplicates()
-    
+
     df['id'] = df['id'].astype(str)
     df['total_amount'] = pd.to_numeric(df['total_amount'], errors='coerce')
     df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce')
-    
-    df = df[df['total_amount'] > 0]
-    
     df['comment'] = df['comment'].fillna('')
-    
+
+    # Оставляем только продажи с положительной суммой (после пересчёта)
+    df = df[df['total_amount'] > 0]
+
     df = df.dropna(subset=['created_at'])
-    removed_count = original_len - len(df)
-    
+
     df['etl_updated_at'] = datetime.now()
-    
+
+    # 4. Сохранение
     os.makedirs(f"{SILVER_PATH}/postgres", exist_ok=True)
     df.to_parquet(f"{SILVER_PATH}/postgres/sale_headers.parquet", index=False)
-    
-    print(f"Sale headers: {len(df)} records (removed {removed_count} invalid records)")
-    return len(df)
 
+    removed_count = original_len - len(df)
+    print(f"Заголовки продаж: {len(df)} записей (удалено {removed_count} записей)")
+    return len(df)
 
 def clean_purchase_headers(**context):
     """
@@ -261,9 +289,7 @@ def clean_purchase_headers(**context):
     df['total_amount'] = pd.to_numeric(df['total_amount'], errors='coerce')
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
     df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce')
-    
-    df = df[df['total_amount'] > 0]
-    
+        
     df['comment'] = df['comment'].fillna('')
     
     df['date'] = df['date'].fillna(df['created_at'])
@@ -647,6 +673,13 @@ def clean_telemetry(**context):
     
     print(f"Loaded {len(df)} records from telemetry")
     print(f"Original columns: {df.columns.tolist()}")
+    
+    if 'order_key' in df.columns:
+        before = len(df)
+        df = df.dropna(subset=['order_key'])
+        print(f"Removed {before - len(df)} records without order_key")
+    else:
+        print("Warning: 'order_key' column not found, skipping filter")
     
     if 'loc' in df.columns:
         df['latitude'] = df['loc'].apply(lambda x: x.get('lat') if isinstance(x, dict) else None)

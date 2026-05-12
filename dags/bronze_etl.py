@@ -83,8 +83,6 @@ def load_excel_to_bronze():
         
 
 def load_json_to_bronze():
-    """Данная функция извлекает информацию из JSONL логов,
-    после чего эта информация записывается в файл telemetry.parquet"""
     json_base = Path("/opt/airflow/data/raw/json")
     json_files = list(json_base.glob("dt=*/*.jsonl"))
     if not json_files:
@@ -94,19 +92,49 @@ def load_json_to_bronze():
     records = []
     for json_file in json_files:
         try:
+            file_name = json_file.name
+            parts = file_name.split('_')
+            order_key = parts[1] if len(parts) >= 2 else None
+            
             with open(json_file, 'r', encoding='utf-8') as f:
                 for line_num, line in enumerate(f, 1):
                     if line.strip():
                         data = json.loads(line)
-                        data['source_file'] = json_file.name  # Path дает .name
-                        # Извлекаем дату из пути
+                        data['source_file'] = json_file.name
                         date_part = json_file.parent.name.replace('dt=', '')
                         data['log_date'] = date_part
                         data['load_timestamp'] = datetime.now().isoformat()
+                        data['order_key'] = order_key
                         records.append(data)
             print(f"JSON {json_file.name}: обработан")
         except Exception as e:
             print(f"Ошибка в файле {json_file}: {e}")
+    
+    if records:
+        df = pd.DataFrame(records)
+        
+        if 'loc' in df.columns:
+            df['lat'] = df['loc'].apply(lambda x: x.get('lat') if isinstance(x, dict) else None)
+            df['lon'] = df['loc'].apply(lambda x: x.get('lon') if isinstance(x, dict) else None)
+        
+        if 'eng' in df.columns:
+            df['rpm'] = df['eng'].apply(lambda x: x.get('rpm') if isinstance(x, dict) else None)
+            df['engine_temp'] = df['eng'].apply(lambda x: x.get('tmp') if isinstance(x, dict) else None)
+        
+        if 'flags' in df.columns:
+            df['car_id'] = df['flags'].apply(lambda x: x.get('car_id') if isinstance(x, dict) else None)
+            df['abs_active'] = df['flags'].apply(lambda x: x.get('abs') if isinstance(x, dict) else None)
+        
+        if 'gps' in df.columns:
+            df['gps_satellites'] = df['gps'].apply(lambda x: x.get('sat') if isinstance(x, dict) else None)
+        
+        output_path = "/opt/airflow/data/bronze/json/telemetry.parquet"
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(output_path, index=False)
+        unique_files = len(set([r['source_file'] for r in records]))
+        print(f"JSON: обработано {len(records)} записей из {unique_files} файлов -> {output_path}")
+    else:
+        print("Ошибка Нет данных в JSON файлах")
     
     if records:
         df = pd.DataFrame(records)

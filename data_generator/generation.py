@@ -16,9 +16,23 @@ DB_CONFIG = {
     'host': os.getenv('PGHOST'),
     'port': os.getenv('PGPORT')
 }
-
-os.makedirs('data/raw/json')
-os.makedirs('data/raw/excel')
+try:
+    print("Удаление директории data")
+    os.remove('data')
+except:
+    print("Директория data не существует")
+for dir in [('data/raw/json'),
+                ('data/raw/excel'),
+                ('data/bronze/json'),
+                ('data/bronze/excel'),
+                ('data/bronze/postgres'),
+                ('data/silver/json'),
+                ('data/silver/excel'),
+                ('data/silver/postgres')]:
+    try:
+        os.makedirs(dir)
+    except:
+        print(f"Директория {dir} уже существует")
 
 
 db_generator = DatabaseGenerator(db_config=DB_CONFIG)
